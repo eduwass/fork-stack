@@ -5,17 +5,23 @@ An agent skill for maintaining a fork without falling behind upstream.
 https://github.com/user-attachments/assets/dfe6c964-73f1-4f91-a752-82d012b27bbb
 
 The idea: your fork is upstream plus a short, linear stack of your own commits,
-one per feature, replayed on top every time upstream moves. Rebasing is cheap
-when an agent does it. What keeps it cheap is the shape of the stack: small
-patches that barely touch upstream's files, and a check that the rebase did not
-quietly change what a patch does.
+one per feature, replayed on top every time upstream moves. An agent can do the
+rebase. What keeps that manageable is the shape of the stack: small patches that
+barely touch upstream's files, and a before/after view of every patch so a bad
+conflict resolution is visible.
+
+It does not prove a patch still behaves the same after a rebase. Only your
+fork's own tests can do that, so point `fork-stack.check` at them.
 
 The skill is a guide for the agent ([SKILL.md](skills/fork-stack/SKILL.md)) plus
 one bash script for the parts that should not be improvised.
 
 ## What the script does
 
-Run it inside your fork, on the branch that holds your commits.
+Run it inside your fork, on the branch that holds your commits. The examples
+write `fork-stack.sh` for short; it is not on your `PATH`, so call it by its
+installed path (for example `~/.claude/skills/fork-stack/fork-stack.sh`) or add
+an alias.
 
 ```sh
 $ fork-stack.sh ledger
@@ -37,7 +43,7 @@ $ fork-stack.sh sync
 | command | what it does |
 | --- | --- |
 | `ledger` | lists your patches and how far behind upstream you are |
-| `check` | fails on merge commits, unfolded `fixup!` commits, a dirty tree or a rebase in progress |
+| `check` | fails on merge commits, unfolded `fixup!` commits, a dirty tree (untracked files are ignored) or a rebase in progress |
 | `blast-radius [--max N]` | per patch: lines and files changed in upstream's paths versus paths only the fork has |
 | `sync` | fetches, records an undo point, rebases the stack onto upstream, then runs `verify` |
 | `sync --abort-on-conflict` | the same, but on conflicts it reports the patch and files, aborts the rebase and leaves the branch untouched |
@@ -75,9 +81,10 @@ Settings live in git config, so nothing is added to the fork's tree.
 Syncing weekly keeps every rebase small. `sync` is the command to schedule; pick
 the mode by whether anything is there to resolve conflicts.
 
-**Plain cron, no agent.** Use `--abort-on-conflict`. A clean rebase lands and is
-verified. A conflict is reported and backed out, so the fork is never left
-mid-rebase:
+**Plain cron, no agent.** Use `--abort-on-conflict`. A clean rebase lands and
+your check command runs. A conflict is reported and backed out, so the fork is
+never left mid-rebase. Nobody reads the `range-diff` in this mode, so set
+`fork-stack.check`; without it a clean rebase is all that exit code `0` means:
 
 ```sh
 # Mondays at 09:00, one line per fork
@@ -85,7 +92,8 @@ mid-rebase:
 ```
 
 Exit code `0` means the fork is on top of upstream and its checks passed. `2`
-means that sync needs a person or an agent. Anything else is a failed check.
+means that sync needs a person or an agent. `1` is a failed check; the branch
+stays rebased, and the log says where it was before.
 
 **A scheduled agent.** Use whatever scheduler your agent has (a cron job that
 starts it headless, a routine, a CI workflow) with a prompt like:
@@ -105,7 +113,7 @@ Either way the run stops at your local branch. Nothing is pushed.
 - One hook line in their file, your logic in your own file.
 - Rebase, never merge. Fold fixes back into the commit they belong to.
 - Do not add a feature flag just to make rebasing easier.
-- Sync often. Small deltas are trivial.
+- Sync often. Small deltas are far easier than large ones.
 - No ledger file. `git log upstream..HEAD` is the ledger.
 
 ## Development

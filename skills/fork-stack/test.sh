@@ -55,8 +55,8 @@ ok "stack sits on the upstream tip"
 expect 0 "before the sync 'main' was at" "$FS" verify
 
 # a failing repo check fails verify, and sync refuses a detached HEAD
-git config fork-stack.check "exit 7"
-expect 7 "== exit 7" "$FS" verify
+git config fork-stack.check "exit 2"
+expect 1 "FAIL 'exit 2' exited 2" "$FS" verify
 git config fork-stack.check "true"
 git checkout -q --detach
 expect 1 "HEAD is detached" "$FS" sync
@@ -102,5 +102,17 @@ expect 0 "2 patch(es) on upstream/main, 0 behind" "$FS" sync
 expect 0 "was rewritten upstream" "$FS" sync
 [ "$(git rev-list --count upstream/main..HEAD)" -eq 2 ] || bad "a commit upstream removed came back"
 ok "rewritten upstream: stack is still 2 patches"
+
+# same again, but the first attempt conflicts and is aborted after it already fetched the
+# rewrite: the retry must still replay only our two patches
+(cd "$TMP/up" && echo 14 >>app.txt && commit up@x u6)
+expect 0 "2 patch(es) on upstream/main, 0 behind" "$FS" sync
+(cd "$TMP/up" && git reset -q --hard HEAD~1 && sed -i.bak '2s/.*/deux/' app.txt && rm app.txt.bak && commit up@x u6b)
+expect 2 "rebase aborted" "$FS" sync --abort-on-conflict
+expect 2 "stopped on conflicts" "$FS" sync
+[ "$(git rev-list --count upstream/main..refs/fork-stack/pre/main)" -eq 3 ] || bad "test setup: removed commit should be in the old stack"
+[ "$(git rev-list --count "$(git rev-parse refs/fork-stack/base/main)..refs/fork-stack/pre/main")" -eq 2 ] || bad "retry after an aborted sync widened the stack"
+ok "retry after an aborted sync still replays 2 patches"
+git rebase --abort
 
 echo "all fork-stack checks passed"

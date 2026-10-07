@@ -16,9 +16,12 @@
 # Never pushes. Exit codes: 0 ok, 1 a check failed, 2 the rebase stopped on conflicts.
 set -euo pipefail
 
-# Undo state is kept per branch, so syncing one worktree never overwrites another's.
-pre_ref() { echo "refs/fork-stack/pre/$1"; }
-base_ref() { echo "refs/fork-stack/base/$1"; }
+# State is kept per branch, so syncing one worktree never overwrites another's. Slashes
+# in branch names are escaped so "topic" and "topic/sub" cannot collide as refs.
+pre_ref() { echo "refs/fork-stack/pre/${1//\//%2F}"; }
+base_ref() { echo "refs/fork-stack/base/${1//\//%2F}"; }
+# The upstream commit the stack was last rebased onto: the boundary between theirs and yours.
+onto_ref() { echo "refs/fork-stack/onto/${1//\//%2F}"; }
 
 die() {
   echo "fork-stack: $*" >&2
@@ -158,11 +161,17 @@ cmd_verify() {
   cmd_ledger
   echo "== check"
   cmd_check
+  # The stack now sits on upstream: record that boundary for the next sync.
+  if git merge-base --is-ancestor "$UP" HEAD; then git update-ref "$(onto_ref "$branch")" "$UP"; fi
 
   check=$(git config --get fork-stack.check || true)
   if [ -n "$check" ]; then
     echo "== $check"
-    (cd "$(git rev-parse --show-toplevel)" && sh -c "$check")
+    # Exit 1, not the command's own status, so a check can never look like exit code 2.
+    (cd "$(git rev-parse --show-toplevel)" && sh -c "$check") || {
+      echo "FAIL '$check' exited $?"
+      return 1
+    }
   else
     echo "WARN no fork-stack.check command set; run this repo's tests yourself"
   fi
@@ -170,7 +179,7 @@ cmd_verify() {
 }
 
 cmd_sync() {
-  local remote=${UP%%/*} branch old_upstream base unattended=0
+  local remote=${UP%%/*} branch old_upstream base onto unattended=0
   [ "${1:-}" != "--abort-on-conflict" ] || unattended=1
   branch=$(current_branch)
   if rebase_in_progress; then die "a rebase is already in progress"; fi
@@ -180,8 +189,14 @@ cmd_sync() {
     die "the stack contains merge commits; linearize it by hand first, sync would silently drop their conflict resolutions"
 
   # The stack is whatever sits on top of upstream as we know it now, before fetching.
+  # Prefer the boundary recorded by the last finished sync: an aborted attempt may already
+  # have fetched a rewritten upstream, which would make merge-base point too far back.
   old_upstream=$(git rev-parse "$UP")
   base=$(git merge-base "$UP" HEAD)
+  onto=$(git rev-parse -q --verify "$(onto_ref "$branch")" || true)
+  if [ -n "$onto" ] && git merge-base --is-ancestor "$onto" HEAD && git merge-base --is-ancestor "$base" "$onto"; then
+    base=$onto
+  fi
   if git remote | grep -qFx "$remote"; then git fetch --quiet "$remote"; fi
   git merge-base --is-ancestor "$old_upstream" "$UP" ||
     echo "WARN $UP was rewritten upstream; replaying only the patches that sat on the old base"
@@ -191,7 +206,8 @@ cmd_sync() {
   # Remember conflict resolutions so the same conflict is only ever resolved once.
   git config rerere.enabled true
 
-  if ! git rebase --onto "$UP" "$base"; then
+  # --no-update-refs: only this branch has an undo point, so only this branch may move.
+  if ! git rebase --no-update-refs --onto "$UP" "$base"; then
     rebase_in_progress || die "git rebase could not start (see its message above); nothing was changed"
     if [ "$unattended" -eq 1 ]; then
       echo

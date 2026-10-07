@@ -32,9 +32,9 @@ would otherwise skip.
 | `sync --abort-on-conflict` | the same, but on conflicts it names the patch and files, aborts the rebase and leaves the branch untouched |
 | `verify` | `range-diff` of the stack before and after, the ledger, `check`, and the repo's own check command |
 
-Exit codes: `0` fine, `1` a check failed, `2` the rebase stopped on conflicts
-(any other code from `verify` is the repo's own check command failing). The
-script never pushes. Untracked files do not count as a dirty tree.
+Exit codes: `0` fine, `1` a check failed (including the repo's own check
+command), `2` the rebase stopped on conflicts. The script never pushes.
+Untracked files do not count as a dirty tree.
 
 ## Set up a fork once
 
@@ -57,17 +57,22 @@ you did not author, which is the sign that the upstream ref is wrong.
    Lines inside upstream's functions conflict whenever upstream edits nearby;
    a file upstream does not have conflicts only if upstream later adds the same
    path.
-3. Commit it as one commit per feature, with the reason in the commit body. A
+3. Give the customization a test of its own where the repo has tests. A clean
+   rebase and an unchanged `range-diff` show the text survived, not that the
+   behaviour did; only a test shows that.
+4. Commit it as one commit per feature, with the reason in the commit body. A
    follow-up fix to an existing patch is `git commit --fixup <sha>` followed by
    `git -c sequence.editor=: rebase -i --autosquash <upstream ref>`, so the stack
    keeps one commit per feature.
-4. Run `fork-stack.sh blast-radius`. `theirs` is the churn in paths that exist
-   upstream and `files` is how many of them; those are the numbers to shrink. If
+5. Run `fork-stack.sh blast-radius`. `theirs` is the churn in paths that exist
+   upstream and `files` is how many of them. Treat them as a prompt, not a
+   target: a two-line hook can still depend heavily on upstream internals, and
+   indirection added only to lower the number makes the patch worse. If
    one patch changes many lines in upstream's files, check whether the logic can
    move into your own file behind a hook. The metric goes by path and does not
    follow renames: renaming an upstream file makes later edits look like yours,
    so do not rename upstream's files.
-5. Run `fork-stack.sh check` and the repo's own checks.
+6. Run `fork-stack.sh check` and the repo's own checks.
 
 Do not add a feature flag just to make rebasing easier: a flag adds lines to
 config parsing, defaults and docs, which is more conflict surface. Add one when
