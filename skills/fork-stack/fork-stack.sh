@@ -5,6 +5,8 @@
 #   fork-stack.sh check                  fail if the stack is not clean and linear
 #   fork-stack.sh blast-radius [--max N] lines each patch changes in upstream's files
 #   fork-stack.sh sync                   fetch, rebase the stack onto upstream, verify
+#   fork-stack.sh sync --abort-on-conflict   same, but back out and report on conflicts
+#                                        (for scheduled runs with nobody there to resolve)
 #   fork-stack.sh verify                 range-diff + ledger + checks after a sync
 #
 # Per-repo settings live in git config (nothing to commit, nothing to conflict):
@@ -168,7 +170,8 @@ cmd_verify() {
 }
 
 cmd_sync() {
-  local remote=${UP%%/*} branch old_upstream base
+  local remote=${UP%%/*} branch old_upstream base unattended=0
+  [ "${1:-}" != "--abort-on-conflict" ] || unattended=1
   branch=$(current_branch)
   if rebase_in_progress; then die "a rebase is already in progress"; fi
   if dirty; then die "working tree has uncommitted changes; commit them first"; fi
@@ -190,6 +193,14 @@ cmd_sync() {
 
   if ! git rebase --onto "$UP" "$base"; then
     rebase_in_progress || die "git rebase could not start (see its message above); nothing was changed"
+    if [ "$unattended" -eq 1 ]; then
+      echo
+      echo "fork-stack: conflicts in '$(git log -1 --format='%h %s' REBASE_HEAD)':"
+      git diff --name-only --diff-filter=U | sed 's/^/  /'
+      git rebase --abort
+      echo "fork-stack: rebase aborted, '$branch' is unchanged and $(git rev-list --count "HEAD..$UP") behind $UP"
+      exit 2
+    fi
     echo
     echo "fork-stack: the rebase stopped on conflicts."
     echo "  resolve each file, git add it, then: git rebase --continue"
@@ -207,7 +218,7 @@ case ${1:-} in
 ledger) cmd_ledger ;;
 check) cmd_check ;;
 blast-radius) shift && cmd_blast_radius "$@" ;;
-sync) cmd_sync ;;
+sync) shift && cmd_sync "$@" ;;
 verify) cmd_verify ;;
-*) die "usage: fork-stack.sh ledger | check | blast-radius [--max N] | sync | verify" ;;
+*) die "usage: fork-stack.sh ledger | check | blast-radius [--max N] | sync [--abort-on-conflict] | verify" ;;
 esac

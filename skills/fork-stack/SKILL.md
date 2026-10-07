@@ -29,6 +29,7 @@ would otherwise skip.
 | `check` | fails on merge commits, unfolded `fixup!` commits, a dirty tree or a rebase in progress |
 | `blast-radius [--max N]` | per patch: lines and files changed in upstream's paths versus paths only the fork has; fails above `N` lines |
 | `sync` | fetches, records an undo point, rebases the stack onto upstream, then runs `verify`; refuses a detached HEAD, a dirty tree or a stack with merge commits |
+| `sync --abort-on-conflict` | the same, but on conflicts it names the patch and files, aborts the rebase and leaves the branch untouched |
 | `verify` | `range-diff` of the stack before and after, the ledger, `check`, and the repo's own check command |
 
 Exit codes: `0` fine, `1` a check failed, `2` the rebase stopped on conflicts
@@ -97,6 +98,22 @@ may be proposed upstream.
 
 Sync is its own task. Do not fold it into feature work, and do not sync from a
 dirty tree.
+
+## Scheduled (weekly) runs
+
+Syncing weekly keeps each rebase small. Two ways to schedule it:
+
+- **A plain cron job, no agent.** Run `fork-stack.sh sync --abort-on-conflict` in
+  each fork. A clean rebase lands and is verified; a conflict is reported and
+  backed out, so the fork is never left mid-rebase. Exit code `2` means a human
+  or an agent has to do that sync.
+- **A scheduled agent.** Give it this skill and the list of fork paths. For each
+  fork it runs `fork-stack.sh sync`, resolves any conflicts as described above,
+  reads the `range-diff`, and reports per fork: patches replayed, patches that
+  disappeared and why, conflicts resolved, and the result of the repo's check.
+
+Either way a scheduled run stops at the local branch: no push, no build, no
+deploy. Those stay with the user, who reads the report first.
 
 ## Rules
 

@@ -80,6 +80,9 @@ git reset -q --hard HEAD~1
 # upstream edits the line we hooked: sync stops with exit code 2
 (cd "$TMP/up" && sed -i.bak '2s/.*/two/' app.txt && rm app.txt.bak && commit up@x u4)
 before=$(git rev-parse HEAD)
+expect 2 "rebase aborted, 'main' is unchanged and 2 behind" "$FS" sync --abort-on-conflict
+[ "$(git rev-parse HEAD)" = "$before" ] && [ -z "$(git status --porcelain)" ] || bad "unattended sync left the branch changed"
+ok "unattended sync backed out cleanly"
 expect 2 "stopped on conflicts" "$FS" sync
 [ "$(git rev-parse refs/fork-stack/pre/main)" = "$before" ] || bad "undo point is not the pre-sync HEAD"
 ok "undo point is the pre-sync HEAD"
