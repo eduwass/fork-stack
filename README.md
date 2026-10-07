@@ -2,6 +2,8 @@
 
 An agent skill for maintaining a fork without falling behind upstream.
 
+https://github.com/user-attachments/assets/a2bd25b6-c6b5-44a7-bfa0-cdd1f1fb95c1
+
 The idea: your fork is upstream plus a short, linear stack of your own commits,
 one per feature, replayed on top every time upstream moves. Rebasing is cheap
 when an agent does it. What keeps it cheap is the shape of the stack: small
